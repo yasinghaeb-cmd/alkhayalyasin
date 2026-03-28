@@ -2085,19 +2085,19 @@ function buildFinPrintContent(type, period, brs){
       const bExp=bd.expenses.reduce((s,e)=>s+e.amount,0);
       totalRev+=bd.revenue||0; totalExp+=bExp;
       bd.expenses.forEach(e=>catTotals[e.cat]=(catTotals[e.cat]||0)+e.amount);
-      brRows+=\`<tr style="background:#FAF4E4"><td colspan="4" style="font-weight:700;color:#B8922A;padding:6px 10px">🏪 فرع \${b} — إيراد: \${fmtNum(bd.revenue)} ${CURRENCY}</td></tr>\`;
+      brRows+=`<tr style="background:#FAF4E4"><td colspan="4" style="font-weight:700;color:#B8922A;padding:6px 10px">🏪 فرع ${b} — إيراد: ${fmtNum(bd.revenue)} ${CURRENCY}</td></tr>`;
       bd.expenses.forEach(e=>{
         const cat=FIN_CATS.find(c=>c.id===e.cat)||FIN_CATS[3];
-        brRows+=\`<tr><td>\${e.time||'—'}</td><td>\${e.desc}</td><td>\${cat.label}</td><td style="color:#8B1A1A;font-weight:700">\${fmtNum(e.amount)}</td></tr>\`;
+        brRows+=`<tr><td>${e.time||'—'}</td><td>${e.desc}</td><td>${cat.label}</td><td style="color:#8B1A1A;font-weight:700">${fmtNum(e.amount)}</td></tr>`;
       });
     });
     const net=totalRev-totalExp;
-    return \`<div class="summary">
-      <div class="sbox"><div class="sbox-label">الإيرادات</div><div class="sbox-val" style="color:#1E6B3A">\${fmtNum(totalRev)}</div></div>
-      <div class="sbox"><div class="sbox-label">المصروفات</div><div class="sbox-val" style="color:#8B1A1A">\${fmtNum(totalExp)}</div></div>
-      <div class="sbox"><div class="sbox-label">الصافي</div><div class="sbox-val" style="color:\${net>=0?'#1E6B3A':'#8B1A1A'}">\${fmtNum(net)}</div></div>
+    return `<div class="summary">
+      <div class="sbox"><div class="sbox-label">الإيرادات</div><div class="sbox-val" style="color:#1E6B3A">${fmtNum(totalRev)}</div></div>
+      <div class="sbox"><div class="sbox-label">المصروفات</div><div class="sbox-val" style="color:#8B1A1A">${fmtNum(totalExp)}</div></div>
+      <div class="sbox"><div class="sbox-label">الصافي</div><div class="sbox-val" style="color:${net>=0?'#1E6B3A':'#8B1A1A'}">${fmtNum(net)}</div></div>
     </div>
-    <table><thead><tr><th>الوقت</th><th>البيان</th><th>التصنيف</th><th>المبلغ</th></tr></thead><tbody>\${brRows||'<tr><td colspan="4" style="text-align:center">لا توجد بيانات</td></tr>'}</tbody></table>\`;
+    <table><thead><tr><th>الوقت</th><th>البيان</th><th>التصنيف</th><th>المبلغ</th></tr></thead><tbody>${brRows||'<tr><td colspan="4" style="text-align:center">لا توجد بيانات</td></tr>'}</tbody></table>`;
 
   } else if(type==='monthly'){
     const days=Object.keys(dailyFinance).filter(d=>d.startsWith(period)).sort();
@@ -2117,24 +2117,24 @@ function buildFinPrintContent(type, period, brs){
         bd.expenses.forEach(e=>catTotals[e.cat]=(catTotals[e.cat]||0)+e.amount);
       });
       totalRev+=dRev; totalExp+=dExp;
-      if(dRev||dExp) dayRows+=\`<tr><td>\${d}</td><td style="color:#1E6B3A">\${fmtNum(dRev)}</td><td style="color:#8B1A1A">\${fmtNum(dExp)}</td><td style="font-weight:700;color:\${(dRev-dExp)>=0?'#1E6B3A':'#8B1A1A'}">\${fmtNum(dRev-dExp)}</td></tr>\`;
+      if(dRev||dExp) dayRows+=`<tr><td>${d}</td><td style="color:#1E6B3A">${fmtNum(dRev)}</td><td style="color:#8B1A1A">${fmtNum(dExp)}</td><td style="font-weight:700;color:${(dRev-dExp)>=0?'#1E6B3A':'#8B1A1A'}">${fmtNum(dRev-dExp)}</td></tr>`;
     });
 
     brs.forEach(b=>{
       const bNet=brData[b].rev-brData[b].exp;
-      branchSummary+=\`<tr><td style="font-weight:700">🏪 \${b}</td><td style="color:#1E6B3A">\${fmtNum(brData[b].rev)}</td><td style="color:#8B1A1A">\${fmtNum(brData[b].exp)}</td><td style="font-weight:700;color:\${bNet>=0?'#1E6B3A':'#8B1A1A'}">\${fmtNum(bNet)}</td></tr>\`;
+      branchSummary+=`<tr><td style="font-weight:700">🏪 ${b}</td><td style="color:#1E6B3A">${fmtNum(brData[b].rev)}</td><td style="color:#8B1A1A">${fmtNum(brData[b].exp)}</td><td style="font-weight:700;color:${bNet>=0?'#1E6B3A':'#8B1A1A'}">${fmtNum(bNet)}</td></tr>`;
     });
 
     const net=totalRev-totalExp;
-    return \`<div class="summary">
-      <div class="sbox"><div class="sbox-label">إجمالي الإيرادات</div><div class="sbox-val" style="color:#1E6B3A">\${fmtNum(totalRev)}</div></div>
-      <div class="sbox"><div class="sbox-label">إجمالي المصروفات</div><div class="sbox-val" style="color:#8B1A1A">\${fmtNum(totalExp)}</div></div>
-      <div class="sbox"><div class="sbox-label">صافي الربح</div><div class="sbox-val" style="color:\${net>=0?'#1E6B3A':'#8B1A1A'}">\${fmtNum(net)}</div></div>
+    return `<div class="summary">
+      <div class="sbox"><div class="sbox-label">إجمالي الإيرادات</div><div class="sbox-val" style="color:#1E6B3A">${fmtNum(totalRev)}</div></div>
+      <div class="sbox"><div class="sbox-label">إجمالي المصروفات</div><div class="sbox-val" style="color:#8B1A1A">${fmtNum(totalExp)}</div></div>
+      <div class="sbox"><div class="sbox-label">صافي الربح</div><div class="sbox-val" style="color:${net>=0?'#1E6B3A':'#8B1A1A'}">${fmtNum(net)}</div></div>
     </div>
     <div class="section-title">ملخص الأفرع</div>
-    <table><thead><tr><th>الفرع</th><th>الإيرادات</th><th>المصروفات</th><th>الصافي</th></tr></thead><tbody>\${branchSummary}</tbody></table>
+    <table><thead><tr><th>الفرع</th><th>الإيرادات</th><th>المصروفات</th><th>الصافي</th></tr></thead><tbody>${branchSummary}</tbody></table>
     <div class="section-title">التفصيل اليومي</div>
-    <table><thead><tr><th>التاريخ</th><th>الإيرادات</th><th>المصروفات</th><th>الصافي</th></tr></thead><tbody>\${dayRows}</tbody></table>\`;
+    <table><thead><tr><th>التاريخ</th><th>الإيرادات</th><th>المصروفات</th><th>الصافي</th></tr></thead><tbody>${dayRows}</tbody></table>`;
 
   } else {
     const months=[...new Set(Object.keys(dailyFinance).filter(d=>d.startsWith(period)).map(d=>d.slice(0,7)))].sort();
@@ -2156,24 +2156,24 @@ function buildFinPrintContent(type, period, brs){
         });
       });
       totalRev+=mRev; totalExp+=mExp;
-      monthRows+=\`<tr><td>\${formatMonth(m)}</td><td style="color:#1E6B3A">\${fmtNum(mRev)}</td><td style="color:#8B1A1A">\${fmtNum(mExp)}</td><td style="font-weight:700;color:\${(mRev-mExp)>=0?'#1E6B3A':'#8B1A1A'}">\${fmtNum(mRev-mExp)}</td></tr>\`;
+      monthRows+=`<tr><td>${formatMonth(m)}</td><td style="color:#1E6B3A">${fmtNum(mRev)}</td><td style="color:#8B1A1A">${fmtNum(mExp)}</td><td style="font-weight:700;color:${(mRev-mExp)>=0?'#1E6B3A':'#8B1A1A'}">${fmtNum(mRev-mExp)}</td></tr>`;
     });
 
     brs.forEach(b=>{
       const bNet=brData[b].rev-brData[b].exp;
-      branchSummary+=\`<tr><td style="font-weight:700">🏪 \${b}</td><td style="color:#1E6B3A">\${fmtNum(brData[b].rev)}</td><td style="color:#8B1A1A">\${fmtNum(brData[b].exp)}</td><td style="font-weight:700;color:\${bNet>=0?'#1E6B3A':'#8B1A1A'}">\${fmtNum(bNet)}</td></tr>\`;
+      branchSummary+=`<tr><td style="font-weight:700">🏪 ${b}</td><td style="color:#1E6B3A">${fmtNum(brData[b].rev)}</td><td style="color:#8B1A1A">${fmtNum(brData[b].exp)}</td><td style="font-weight:700;color:${bNet>=0?'#1E6B3A':'#8B1A1A'}">${fmtNum(bNet)}</td></tr>`;
     });
 
     const net=totalRev-totalExp;
-    return \`<div class="summary">
-      <div class="sbox"><div class="sbox-label">إجمالي الإيرادات</div><div class="sbox-val" style="color:#1E6B3A">\${fmtNum(totalRev)}</div></div>
-      <div class="sbox"><div class="sbox-label">إجمالي المصروفات</div><div class="sbox-val" style="color:#8B1A1A">\${fmtNum(totalExp)}</div></div>
-      <div class="sbox"><div class="sbox-label">صافي الربح</div><div class="sbox-val" style="color:\${net>=0?'#1E6B3A':'#8B1A1A'}">\${fmtNum(net)}</div></div>
+    return `<div class="summary">
+      <div class="sbox"><div class="sbox-label">إجمالي الإيرادات</div><div class="sbox-val" style="color:#1E6B3A">${fmtNum(totalRev)}</div></div>
+      <div class="sbox"><div class="sbox-label">إجمالي المصروفات</div><div class="sbox-val" style="color:#8B1A1A">${fmtNum(totalExp)}</div></div>
+      <div class="sbox"><div class="sbox-label">صافي الربح</div><div class="sbox-val" style="color:${net>=0?'#1E6B3A':'#8B1A1A'}">${fmtNum(net)}</div></div>
     </div>
     <div class="section-title">ملخص الأفرع</div>
-    <table><thead><tr><th>الفرع</th><th>الإيرادات</th><th>المصروفات</th><th>الصافي</th></tr></thead><tbody>\${branchSummary}</tbody></table>
+    <table><thead><tr><th>الفرع</th><th>الإيرادات</th><th>المصروفات</th><th>الصافي</th></tr></thead><tbody>${branchSummary}</tbody></table>
     <div class="section-title">الأشهر</div>
-    <table><thead><tr><th>الشهر</th><th>الإيرادات</th><th>المصروفات</th><th>الصافي</th></tr></thead><tbody>\${monthRows}</tbody></table>\`;
+    <table><thead><tr><th>الشهر</th><th>الإيرادات</th><th>المصروفات</th><th>الصافي</th></tr></thead><tbody>${monthRows}</tbody></table>`;
   }
 }
 
