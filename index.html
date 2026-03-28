@@ -266,14 +266,14 @@ tr:hover td{background:var(--gold-pale)}
         </div>
       </div>
       <div style="margin-bottom:1rem">
-        <div style="color:rgba(255,255,255,0.4);font-size:0.78rem;margin-bottom:0.5rem;letter-spacing:0.03em">الرمز السري</div>
-        <input id="login-pin" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="• • • •" data-real=""
+        <div style="color:rgba(255,255,255,0.4);font-size:0.78rem;margin-bottom:0.5rem;letter-spacing:0.03em">كلمة المرور</div>
+        <input id="login-pin" type="text" inputmode="text" maxlength="20" autocomplete="one-time-code" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="كلمة المرور" data-real=""
           style="width:100%;padding:0.75rem 1rem;background:rgba(255,255,255,0.06);border:1px solid rgba(184,146,42,0.3);border-radius:10px;color:#fff;font-family:Arial,sans-serif;font-size:1.6rem;letter-spacing:0.5em;outline:none;transition:border 0.2s;text-align:center;ime-mode:disabled"
           onkeydown="pinKeyDown(event)"
           oninput="pinMask(this)"
           onfocus="this.style.borderColor='rgba(184,146,42,0.7)'"
           onblur="this.style.borderColor='rgba(184,146,42,0.3)'">
-        <div id="pin-err" style="display:none;color:#FF8080;font-size:0.8rem;margin-top:0.4rem">⚠ الرمز غير صحيح — حاول مجدداً</div>
+        <div id="pin-err" style="display:none;color:#FF8080;font-size:0.8rem;margin-top:0.4rem">⚠ كلمة المرور غير صحيحة — حاول مجدداً</div>
       </div>
       <button class="enter-btn" onclick="doLogin()">دخول النظام ←</button>
     </div>
@@ -438,6 +438,11 @@ let customers = {};
 let activityLog = [];
 let dailyLogs = {}; // dailyLogs[YYYY-MM-DD] = {entries:[{type:'in'|'out', desc, amount, time}], notes:''}
 let presence = {}; // presence[branchName] = {status:'online'|'offline', ts: epoch, time: string}
+let dailyFinance = {}; // dailyFinance[YYYY-MM-DD][branchName] = {revenue:0, expenses:[{desc,amount,cat,time}], notes:''}
+let finSelectedBranch = '';
+let finSelectedDate = '';
+let finReportType = 'daily';
+let finReportBranches = [];
 
 // ============================================================
 // LOCALSTORAGE
@@ -462,6 +467,7 @@ function saveData(){
     localStorage.setItem('khy_activity',JSON.stringify(activityLog));
     localStorage.setItem('khy_daily',JSON.stringify(dailyLogs));
     localStorage.setItem('khy_presence',JSON.stringify(presence));
+    localStorage.setItem('khy_finance',JSON.stringify(dailyFinance));
   }catch(e){console.warn('Storage:',e)}
   saveToSupabase();
 }
@@ -475,6 +481,7 @@ function loadData(){
     const a=localStorage.getItem('khy_activity'); if(a) activityLog=JSON.parse(a);
     const dl=localStorage.getItem('khy_daily'); if(dl) dailyLogs=JSON.parse(dl);
     const pr=localStorage.getItem('khy_presence'); if(pr) presence=JSON.parse(pr);
+    const fin=localStorage.getItem('khy_finance'); if(fin) dailyFinance=JSON.parse(fin);
   }catch(e){console.warn('Load:',e)}
   // ضمان وجود جميع الرموز الافتراضية دائماً
   const _def={admin:'1234','الموصل':'1111','الرمادي':'2222','تكريت':'3333',محاسب:'5555'};
@@ -588,39 +595,35 @@ function selectRole(el){
 // PIN masking — نخزن الرقم الحقيقي في data-real ونعرض نقاط فقط
 let _pinReal = '';
 function pinMask(el){
-  // نحسب الفرق بين ما كتبه المستخدم والنقاط الموجودة
   const displayed = el.value;
   const dots = _pinReal.length;
-  // إذا حذف حرف
   if(displayed.length < dots){
     _pinReal = _pinReal.slice(0, displayed.length);
   } else {
-    // أضاف حروف جديدة — نأخذ الأرقام فقط
-    const added = displayed.slice(dots).replace(/\D/g,'');
+    // نأخذ كل الأحرف الجديدة (أرقام، حروف، رموز)
+    const added = displayed.slice(dots);
     _pinReal += added;
-    if(_pinReal.length > 6) _pinReal = _pinReal.slice(0,6);
+    if(_pinReal.length > 20) _pinReal = _pinReal.slice(0,20);
   }
   el.value = '●'.repeat(_pinReal.length);
   el.dataset.real = _pinReal;
-  // auto-login عند 4 أرقام
-  if(_pinReal.length >= 4 && selRole) doLogin();
 }
 function pinKeyDown(e){
   if(e.key==='Enter') doLogin();
-  // نسمح فقط بالأرقام والحذف والتنقل
-  if(!/[\d]/.test(e.key) && !['Backspace','Delete','ArrowLeft','ArrowRight','Tab'].includes(e.key)) e.preventDefault();
+  // نسمح بكل الأحرف
 }
 function doLogin(){
   const pinInput = _pinReal;
   const expectedKey=selRole==='admin'?'admin':selRole==='accountant'?'محاسب':selBranch;
   const expected=PINS[expectedKey]||'';
   if(!expected){snack('⚠ لم يتم تعيين رمز لهذا الحساب');return;}
+  if(!pinInput){return;}
   if(pinInput!==expected){
     _pinReal='';
     document.getElementById('login-pin').value='';
     document.getElementById('pin-err').style.display='block';
     document.getElementById('login-pin').focus();
-    setTimeout(()=>document.getElementById('pin-err').style.display='none',2500);
+    setTimeout(()=>document.getElementById('pin-err').style.display='none',4000);
     return;
   }
   role=selRole; branch=selBranch;
@@ -637,7 +640,7 @@ function doLogin(){
     startPresenceHeartbeat();
   }
   buildNav();
-  showTab(role==='admin'?'dash':role==='accountant'?'accounts':'new-order');
+  showTab(role==='admin'?'dash':role==='accountant'?'fin-daily':'new-order');
 }
 function logout(){
   logActivity('تسجيل خروج');
@@ -670,15 +673,15 @@ function buildNav(){
       {id:'edit-reqs',l:'طلبات التعديل',notif:pendCount},
       {id:'print-q',l:'قائمة الطباعة'},
       {id:'branches',l:'الأفرع'},
-      {id:'pin-mgmt',l:'🔑 الرموز'},
+      {id:'pin-mgmt',l:'🔑 كلمات المرور'},
       {id:'activity-log',l:'📋 السجل'},
       {id:'system',l:'⚙ النظام'},
     ];
   } else if(role==='accountant'){
     tabs=[
-      {id:'accounts',l:'💰 الحسابات'},
-      {id:'daily-log',l:'📅 اليومي'},
-      {id:'accounts-report',l:'📄 تقرير PDF'}
+      {id:'fin-daily',l:'📊 الإدخال اليومي'},
+      {id:'fin-reports',l:'📋 التقارير'},
+      {id:'accounts',l:'💰 البيانات الشهرية'}
     ];
   } else {
     const readyCount=orders.filter(o=>o.branch===branch&&o.status==='ready').length;
@@ -705,7 +708,7 @@ function showTab(id){
   const c=document.getElementById('app-content');
   const map={
     dash:renderDash,'all-orders':renderAllOrders,'edit-reqs':renderEditReqs,
-    'print-q':renderPrintQ,accounts:renderAccounts,'accounts-report':renderAccountsReport,'daily-log':renderDailyLog,
+    'print-q':renderPrintQ,accounts:renderAccounts,'fin-daily':renderFinDaily,'fin-reports':renderFinReports,
     branches:renderBranches,
     'new-order':renderNewOrder,'my-orders':renderMyOrders,'ready-orders':renderReadyOrders,
     'all-branch-orders':renderAllBranchOrders,'pending-orders':renderPendingBranchOrders,
@@ -716,6 +719,7 @@ function showTab(id){
   c.innerHTML=map[id]?map[id]():'';
   if(id==='new-order') initMeasForm();
   if(id==='accounts') setTimeout(()=>initSalesTab(),0);
+  if(id==='fin-daily') setTimeout(()=>initFinDaily(),0);
   // تحديث تلقائي لصفحة السجل كل 90 ثانية (لتحديث نقاط الحضور)
   if(_activityRefreshTimer){ clearInterval(_activityRefreshTimer); _activityRefreshTimer=null; }
   if(id==='activity-log'){
@@ -916,7 +920,7 @@ function renderIncomingOrders(){
           <span>📐 ${MEAS_DEF[o.type]?.label}</span>
           <span>📅 ${o.date}</span>
           ${o.delivery?`<span>🚚 ${o.delivery} ${deliveryCountdown(o.delivery)}</span>`:''}
-          <span>👤 ${o.emp}</span>
+          <span>👤 ${o.emp}${o.branch?' — '+o.branch:''}</span>
         </div>
         <div class="btn-row">
           <button class="btn btn-outline btn-sm" onclick="viewOrder('${o.id}')">👁 عرض القياسات</button>
@@ -1359,8 +1363,8 @@ function renderPinMgmt(){
     {key:'محاسب',label:'المحاسب',icon:'💰',color:'rgba(30,107,58,0.12)'},
   ];
   return `<div class="card">
-    <div class="card-hdr"><div class="card-title"><span class="card-icon">🔑</span> إدارة الرموز السرية</div></div>
-    <div class="alert alert-w">⚠ قسم حصري للإدارة. الرمز الجديد يُطبَّق فوراً.</div>
+    <div class="card-hdr"><div class="card-title"><span class="card-icon">🔑</span> إدارة كلمات المرور</div></div>
+    <div class="alert alert-w">⚠ قسم حصري للإدارة. كلمة المرور الجديدة تُطبَّق فوراً.</div>
     ${accounts.map(a=>`
     <div class="ocard" style="border-right:3px solid var(--gold)">
       <div class="ocard-hdr" style="margin-bottom:0">
@@ -1368,45 +1372,703 @@ function renderPinMgmt(){
           <div style="width:36px;height:36px;border-radius:8px;background:${a.color};display:flex;align-items:center;justify-content:center;font-size:1.1rem">${a.icon}</div>
           <div>
             <div style="font-weight:700;font-size:0.92rem">${a.label}</div>
-            <div style="font-size:0.75rem;color:var(--text3)">الرمز الحالي: ${'●'.repeat(PINS[a.key]?.length||4)}</div>
+            <div style="font-size:0.75rem;color:var(--text3)">كلمة المرور: ${'●'.repeat(PINS[a.key]?.length||4)} <span style="opacity:0.6">(${PINS[a.key]?.length||0} حرف)</span></div>
           </div>
         </div>
-        <button class="btn btn-outline btn-sm" onclick="showChangePinModal('${a.key}','${a.label}')">✏ تغيير</button>
+        <button class="btn btn-outline btn-sm" onclick="showChangePinModal('${a.key}','${a.label}')">✏ تغيير كلمة المرور</button>
       </div>
     </div>`).join('')}
-    <div class="alert alert-i" style="margin-top:0.5rem">💡 يُنصح برموز مختلفة لكل فرع، 4 أرقام على الأقل.</div>
+    <div class="alert alert-i" style="margin-top:0.5rem">💡 كلمة المرور تقبل أرقام وحروف ورموز. الحد الأدنى 4 أحرف. يُنصح بكلمة مختلفة لكل فرع.</div>
   </div>`;
 }
 function showChangePinModal(key,label){
-  document.getElementById('modal-ttl').textContent=`تغيير رمز — ${label}`;
+  document.getElementById('modal-ttl').textContent=`تغيير كلمة المرور — ${label}`;
   document.getElementById('modal-body').innerHTML=`
-    <div class="alert alert-w">الرمز الحالي: ${'●'.repeat(PINS[key]?.length||4)}</div>
-    <div class="fg"><label>الرمز السري الجديد</label>
-      <input id="new-pin" type="password" placeholder="أدخل الرمز الجديد" autocomplete="new-password" style="font-size:1.1rem;letter-spacing:0.2em"></div>
-    <div class="fg"><label>تأكيد الرمز</label>
-      <input id="confirm-pin" type="password" placeholder="أعد إدخال الرمز" autocomplete="new-password" style="font-size:1.1rem;letter-spacing:0.2em" onkeydown="if(event.key==='Enter')savePin('${key}')"></div>
+    <div class="alert alert-w">كلمة المرور الحالية: ${'●'.repeat(PINS[key]?.length||4)}</div>
+    <div class="alert alert-i" style="font-size:0.8rem">💡 مسموح: أرقام، حروف عربية وإنجليزية، رموز (@#$!). الحد الأدنى: 4 أحرف.</div>
+    <div class="fg"><label>كلمة المرور الجديدة</label>
+      <input id="new-pin" type="password" placeholder="أدخل كلمة المرور الجديدة" autocomplete="new-password" style="font-size:1.1rem;letter-spacing:0.1em"></div>
+    <div class="fg"><label>تأكيد كلمة المرور</label>
+      <input id="confirm-pin" type="password" placeholder="أعد إدخال كلمة المرور" autocomplete="new-password" style="font-size:1.1rem;letter-spacing:0.1em" onkeydown="if(event.key==='Enter')savePin('${key}')"></div>
     <div id="pin-modal-err" style="display:none;color:var(--red);font-size:0.82rem;margin-bottom:0.75rem;background:var(--red-bg);padding:0.5rem 0.75rem;border-radius:8px"></div>
     <div class="btn-row">
-      <button class="btn btn-primary" onclick="savePin('${key}')">💾 حفظ الرمز الجديد</button>
+      <button class="btn btn-primary" onclick="savePin('${key}')">💾 حفظ كلمة المرور</button>
       <button class="btn btn-ghost" onclick="closeModal()">إلغاء</button>
     </div>`;
   openModal();
   setTimeout(()=>document.getElementById('new-pin')?.focus(),100);
 }
 function savePin(key){
-  const np=document.getElementById('new-pin')?.value?.trim();
-  const cp=document.getElementById('confirm-pin')?.value?.trim();
+  const np=document.getElementById('new-pin')?.value;
+  const cp=document.getElementById('confirm-pin')?.value;
   const err=document.getElementById('pin-modal-err');
-  if(!np||np.length<4){err.textContent='⚠ الرمز يجب 4 أحرف على الأقل';err.style.display='block';return;}
-  if(np!==cp){err.textContent='⚠ الرمزان غير متطابقين';err.style.display='block';return;}
-  PINS[key]=np; logActivity(`تغيير رمز حساب ${key}`); saveData(); closeModal(); showTab('pin-mgmt');
-  snack('✓ تم تحديث الرمز السري بنجاح');
+  if(!np||np.length<4){err.textContent='⚠ كلمة المرور يجب أن تكون 4 أحرف على الأقل';err.style.display='block';return;}
+  if(np.length>20){err.textContent='⚠ الحد الأقصى 20 حرف';err.style.display='block';return;}
+  if(np!==cp){err.textContent='⚠ كلمتا المرور غير متطابقتين';err.style.display='block';return;}
+  PINS[key]=np; logActivity(`تغيير كلمة مرور ${key}`); saveData(); closeModal(); showTab('pin-mgmt');
+  snack('✓ تم تحديث كلمة المرور بنجاح');
 }
 
 // ============================================================
 // ADMIN/ACCOUNTANT: ACCOUNTS / FINANCIAL MANAGEMENT
 // ============================================================
 let curSalesMonth='', curSalesView='entry';
+
+// ============================================================
+// NEW ACCOUNTING: DAILY FINANCE ENTRY
+// ============================================================
+const FIN_CATS = [
+  {id:'rent', label:'إيجار', icon:'🏠', color:'#e74c3c'},
+  {id:'salaries', label:'رواتب', icon:'👥', color:'#e67e22'},
+  {id:'operations', label:'مصاريف تشغيلية', icon:'⚡', color:'#9b59b6'},
+  {id:'other', label:'مصاريف أخرى', icon:'📦', color:'#34495e'}
+];
+
+function initFinDaily(){
+  if(!finSelectedDate) finSelectedDate = getTodayKey();
+  if(!finSelectedBranch) finSelectedBranch = BRANCHES[0];
+}
+
+function renderFinDaily(){
+  const today = getTodayKey();
+  if(!finSelectedDate) finSelectedDate = today;
+  if(!finSelectedBranch) finSelectedBranch = BRANCHES[0];
+  const day = finSelectedDate;
+  const b = finSelectedBranch;
+  if(!dailyFinance[day]) dailyFinance[day] = {};
+  if(!dailyFinance[day][b]) dailyFinance[day][b] = {revenue:0, expenses:[], notes:''};
+  const bd = dailyFinance[day][b];
+  const totalExp = bd.expenses.reduce((s,e)=>s+e.amount,0);
+  const net = (bd.revenue||0) - totalExp;
+
+  // Quick stats for all branches today
+  let allRevToday=0, allExpToday=0;
+  if(dailyFinance[today]){
+    BRANCHES.forEach(br=>{
+      const brd=dailyFinance[today][br];
+      if(brd){ allRevToday+=brd.revenue||0; allExpToday+=brd.expenses.reduce((s,e)=>s+e.amount,0); }
+    });
+  }
+
+  return `<div class="card">
+    <div class="card-hdr">
+      <div class="card-title"><span class="card-icon">📊</span> الإدخال اليومي</div>
+      <input type="date" value="${day}" onchange="finSelectedDate=this.value;showTab('fin-daily')"
+        style="padding:0.4rem 0.6rem;border:1px solid var(--border2);border-radius:8px;font-family:Tajawal,sans-serif;font-size:0.85rem;background:var(--card)">
+    </div>
+
+    <!-- ملخص سريع لليوم -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.5rem;margin-bottom:1rem">
+      <div class="stat" style="padding:0.5rem"><div class="stat-n" style="color:var(--green);font-size:1rem">${fmtNum(allRevToday)}</div><div class="stat-l">إيرادات اليوم</div></div>
+      <div class="stat" style="padding:0.5rem"><div class="stat-n" style="color:var(--red);font-size:1rem">${fmtNum(allExpToday)}</div><div class="stat-l">مصروفات اليوم</div></div>
+      <div class="stat" style="padding:0.5rem"><div class="stat-n" style="color:${(allRevToday-allExpToday)>=0?'var(--green)':'var(--red)'};font-size:1rem">${fmtNum(allRevToday-allExpToday)}</div><div class="stat-l">الصافي</div></div>
+    </div>
+
+    <!-- اختيار الفرع -->
+    <div style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap">
+      ${BRANCHES.map(br=>{
+        const isActive = br===b;
+        const brData = dailyFinance[day]?.[br];
+        const brRev = brData?.revenue||0;
+        const brExp = brData?.expenses?.reduce((s,e)=>s+e.amount,0)||0;
+        const hasDta = brRev>0||brExp>0;
+        return `<button onclick="finSelectedBranch='${br}';showTab('fin-daily')"
+          style="flex:1;min-width:90px;padding:0.6rem 0.5rem;border-radius:10px;border:2px solid ${isActive?'var(--gold)':'var(--border)'};
+          background:${isActive?'var(--gold-pale)':'var(--card)'};cursor:pointer;font-family:Tajawal,sans-serif;font-weight:700;
+          font-size:0.85rem;transition:all 0.2s;position:relative">
+          🏪 ${br}
+          ${hasDta?'<span style="position:absolute;top:4px;left:4px;width:8px;height:8px;border-radius:50%;background:var(--green)"></span>':''}
+        </button>`;
+      }).join('')}
+    </div>
+
+    <!-- إدخال الإيراد -->
+    <div style="background:var(--green-bg);border:1px solid var(--green-border);border-radius:12px;padding:1rem;margin-bottom:1rem">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
+        <span style="font-weight:700;color:var(--green)">💰 إيراد فرع ${b} لهذا اليوم</span>
+      </div>
+      <div style="display:flex;gap:0.5rem;align-items:center">
+        <input type="number" id="fin-rev-input" value="${bd.revenue||''}" placeholder="أدخل إجمالي الإيراد"
+          style="flex:1;padding:0.6rem;border:1px solid var(--green-border);border-radius:8px;font-family:Tajawal,sans-serif;font-size:1rem;font-weight:700;background:#fff">
+        <span style="font-size:0.85rem;color:var(--text3)">${CURRENCY}</span>
+        <button onclick="saveFinRevenue()" class="btn btn-success btn-sm">💾 حفظ</button>
+      </div>
+    </div>
+
+    <!-- إدخال المصروفات -->
+    <div style="background:var(--red-bg);border:1px solid var(--red-border);border-radius:12px;padding:1rem;margin-bottom:1rem">
+      <div style="font-weight:700;color:var(--red);margin-bottom:0.75rem">📤 المصروفات</div>
+      <div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.75rem">
+        <input id="fin-exp-desc" placeholder="وصف المصروف..." style="flex:2;min-width:120px;padding:0.5rem 0.75rem;border:1px solid var(--red-border);border-radius:8px;font-family:Tajawal,sans-serif;background:#fff">
+        <input id="fin-exp-amount" type="number" placeholder="المبلغ" style="flex:1;min-width:80px;padding:0.5rem 0.75rem;border:1px solid var(--red-border);border-radius:8px;font-family:Tajawal,sans-serif;background:#fff">
+        <select id="fin-exp-cat" style="padding:0.5rem;border:1px solid var(--red-border);border-radius:8px;font-family:Tajawal,sans-serif;background:#fff">
+          ${FIN_CATS.map(c=>`<option value="${c.id}">${c.icon} ${c.label}</option>`).join('')}
+        </select>
+        <button onclick="addFinExpense()" class="btn btn-danger btn-sm">+ إضافة</button>
+      </div>
+
+      <!-- قائمة المصروفات -->
+      <div style="max-height:220px;overflow-y:auto">
+        ${bd.expenses.length===0?'<div style="text-align:center;padding:0.75rem;color:var(--text3);font-size:0.85rem">لا توجد مصروفات مسجلة</div>':
+          bd.expenses.map((e,i)=>{
+            const cat=FIN_CATS.find(c=>c.id===e.cat)||FIN_CATS[3];
+            return `<div style="display:flex;justify-content:space-between;align-items:center;padding:0.5rem 0.6rem;background:#fff;border-radius:8px;margin-bottom:4px;border:1px solid rgba(0,0,0,0.05)">
+              <div style="display:flex;gap:0.5rem;align-items:center">
+                <span style="background:${cat.color}15;color:${cat.color};padding:2px 8px;border-radius:6px;font-size:0.75rem;font-weight:600">${cat.icon} ${cat.label}</span>
+                <span style="font-weight:600">${e.desc}</span>
+                <span style="font-size:0.72rem;color:var(--text3)">${e.time||''}</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:0.5rem">
+                <span style="font-weight:700;color:var(--red)">${fmtNum(e.amount)} ${CURRENCY}</span>
+                <button onclick="deleteFinExpense('${day}','${b}',${i})" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:0.9rem">✕</button>
+              </div>
+            </div>`;
+          }).join('')}
+      </div>
+
+      <!-- إجمالي المصروفات -->
+      ${bd.expenses.length>0?`<div style="display:flex;justify-content:space-between;padding:0.6rem 0.75rem;background:rgba(139,26,26,0.08);border-radius:8px;margin-top:0.5rem;font-weight:700">
+        <span>إجمالي المصروفات</span>
+        <span style="color:var(--red)">${fmtNum(totalExp)} ${CURRENCY}</span>
+      </div>`:''}
+    </div>
+
+    <!-- الصافي -->
+    <div style="background:${net>=0?'var(--green-bg)':'var(--red-bg)'};border:2px solid ${net>=0?'var(--green-border)':'var(--red-border)'};border-radius:12px;padding:1rem;text-align:center;margin-bottom:1rem">
+      <div style="font-size:0.82rem;color:var(--text3);margin-bottom:0.3rem">صافي فرع ${b} — ${day}</div>
+      <div style="font-size:1.6rem;font-weight:800;color:${net>=0?'var(--green)':'var(--red)'}">${fmtNum(net)} ${CURRENCY}</div>
+    </div>
+
+    <!-- ملاحظات -->
+    <textarea id="fin-day-notes" placeholder="ملاحظات..." rows="2" onblur="saveFinNotes('${day}','${b}')"
+      style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:8px;font-family:Tajawal,sans-serif;resize:vertical;box-sizing:border-box">${bd.notes||''}</textarea>
+  </div>
+
+  <!-- آخر 7 أيام -->
+  <div class="card">
+    <div class="card-hdr"><div class="card-title"><span class="card-icon">📅</span> آخر 7 أيام — جميع الأفرع</div></div>
+    ${Object.keys(dailyFinance).sort().reverse().slice(0,7).map(d=>{
+      let dRev=0,dExp=0;
+      BRANCHES.forEach(br=>{
+        const brd=dailyFinance[d]?.[br];
+        if(brd){ dRev+=brd.revenue||0; dExp+=brd.expenses?.reduce((s,e)=>s+e.amount,0)||0; }
+      });
+      const dNet=dRev-dExp;
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:0.5rem 0.6rem;border-bottom:1px solid var(--border);font-size:0.85rem">
+        <span style="font-weight:600;min-width:85px">${d}</span>
+        <div style="display:flex;gap:1rem">
+          <span style="color:var(--green)">${fmtNum(dRev)}</span>
+          <span style="color:var(--red)">${fmtNum(dExp)}</span>
+          <span style="font-weight:700;color:${dNet>=0?'var(--green)':'var(--red)'}">صافي: ${fmtNum(dNet)}</span>
+        </div>
+      </div>`;
+    }).join('')||'<div class="alert alert-i">لا توجد بيانات بعد</div>'}
+  </div>`;
+}
+
+function saveFinRevenue(){
+  const day=finSelectedDate, b=finSelectedBranch;
+  const val=parseFloat(document.getElementById('fin-rev-input')?.value)||0;
+  if(!dailyFinance[day]) dailyFinance[day]={};
+  if(!dailyFinance[day][b]) dailyFinance[day][b]={revenue:0,expenses:[],notes:''};
+  dailyFinance[day][b].revenue=val;
+  syncFinToSalesData(day);
+  saveData();
+  snack(`✓ تم حفظ إيراد فرع ${b}: ${fmtNum(val)} ${CURRENCY}`);
+}
+
+function addFinExpense(){
+  const desc=document.getElementById('fin-exp-desc')?.value?.trim();
+  const amount=parseFloat(document.getElementById('fin-exp-amount')?.value)||0;
+  const cat=document.getElementById('fin-exp-cat')?.value||'other';
+  if(!desc||!amount){snack('⚠ أدخل الوصف والمبلغ');return;}
+  const day=finSelectedDate, b=finSelectedBranch;
+  if(!dailyFinance[day]) dailyFinance[day]={};
+  if(!dailyFinance[day][b]) dailyFinance[day][b]={revenue:0,expenses:[],notes:''};
+  dailyFinance[day][b].expenses.push({desc,amount,cat,time:new Date().toLocaleTimeString('ar-IQ',{hour:'2-digit',minute:'2-digit'})});
+  syncFinToSalesData(day);
+  logActivity(`مصروف ${b}: ${desc} — ${fmtNum(amount)} ${CURRENCY}`);
+  saveData();
+  showTab('fin-daily');
+  snack(`✓ تمت إضافة مصروف: ${fmtNum(amount)} ${CURRENCY}`);
+}
+
+function deleteFinExpense(day,b,idx){
+  if(!dailyFinance[day]?.[b]) return;
+  dailyFinance[day][b].expenses.splice(idx,1);
+  syncFinToSalesData(day);
+  saveData();
+  showTab('fin-daily');
+}
+
+function saveFinNotes(day,b){
+  const v=document.getElementById('fin-day-notes')?.value||'';
+  if(!dailyFinance[day]) dailyFinance[day]={};
+  if(!dailyFinance[day][b]) dailyFinance[day][b]={revenue:0,expenses:[],notes:''};
+  dailyFinance[day][b].notes=v;
+  saveData();
+}
+
+// Sync daily finance data to monthly salesData for reports
+function syncFinToSalesData(day){
+  const month=day.slice(0,7);
+  if(!salesData[month]) salesData[month]={};
+  // Aggregate all days in this month
+  const monthDays=Object.keys(dailyFinance).filter(d=>d.startsWith(month));
+  BRANCHES.forEach(b=>{
+    let rev=0, rent=0, sal=0, daily=0, other=0;
+    monthDays.forEach(d=>{
+      const bd=dailyFinance[d]?.[b];
+      if(!bd) return;
+      rev+=bd.revenue||0;
+      bd.expenses?.forEach(e=>{
+        if(e.cat==='rent') rent+=e.amount;
+        else if(e.cat==='salaries') sal+=e.amount;
+        else if(e.cat==='operations') daily+=e.amount;
+        else other+=e.amount;
+      });
+    });
+    salesData[month][b]={revenue:rev, rent, salaries:sal, daily, other, notes:''};
+  });
+}
+
+// ============================================================
+// NEW ACCOUNTING: REPORTS
+// ============================================================
+function renderFinReports(){
+  if(!finReportBranches.length) finReportBranches=[...BRANCHES];
+  const today=getTodayKey();
+
+  return `<div class="card">
+    <div class="card-hdr"><div class="card-title"><span class="card-icon">📋</span> التقارير المالية</div></div>
+
+    <!-- نوع التقرير -->
+    <div style="display:flex;gap:0.5rem;margin-bottom:1rem">
+      ${['daily','monthly','yearly'].map(t=>{
+        const labels={daily:'📅 يومي',monthly:'📊 شهري',yearly:'📅 سنوي'};
+        return `<button onclick="finReportType='${t}';showTab('fin-reports')"
+          style="flex:1;padding:0.6rem;border-radius:10px;border:2px solid ${finReportType===t?'var(--gold)':'var(--border)'};
+          background:${finReportType===t?'var(--gold-pale)':'var(--card)'};cursor:pointer;font-family:Tajawal,sans-serif;
+          font-weight:700;font-size:0.88rem">${labels[t]}</button>`;
+      }).join('')}
+    </div>
+
+    <!-- فلتر الأفرع -->
+    <div style="margin-bottom:1rem">
+      <div style="font-size:0.82rem;font-weight:600;color:var(--text3);margin-bottom:0.4rem">اختر الأفرع:</div>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+        <button onclick="finReportBranches=[...BRANCHES];showTab('fin-reports')"
+          style="padding:0.4rem 0.8rem;border-radius:8px;border:1px solid ${finReportBranches.length===BRANCHES.length?'var(--gold)':'var(--border)'};
+          background:${finReportBranches.length===BRANCHES.length?'var(--gold-pale)':'transparent'};cursor:pointer;font-family:Tajawal,sans-serif;font-size:0.82rem;font-weight:600">الكل</button>
+        ${BRANCHES.map(b=>{
+          const sel=finReportBranches.includes(b);
+          return `<button onclick="toggleFinBranch('${b}')"
+            style="padding:0.4rem 0.8rem;border-radius:8px;border:1px solid ${sel?'var(--gold)':'var(--border)'};
+            background:${sel?'var(--gold-pale)':'transparent'};cursor:pointer;font-family:Tajawal,sans-serif;font-size:0.82rem">${b}</button>`;
+        }).join('')}
+      </div>
+    </div>
+
+    <!-- محدد التاريخ -->
+    <div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:1rem;flex-wrap:wrap">
+      ${finReportType==='daily'?`
+        <input type="date" id="fin-report-date" value="${today}"
+          style="padding:0.5rem;border:1px solid var(--border2);border-radius:8px;font-family:Tajawal,sans-serif">
+      `:finReportType==='monthly'?`
+        <input type="month" id="fin-report-month" value="${today.slice(0,7)}"
+          style="padding:0.5rem;border:1px solid var(--border2);border-radius:8px;font-family:Tajawal,sans-serif">
+      `:`
+        <input type="number" id="fin-report-year" value="${today.slice(0,4)}" min="2020" max="2040"
+          style="padding:0.5rem;border:1px solid var(--border2);border-radius:8px;font-family:Tajawal,sans-serif;width:100px">
+      `}
+      <button onclick="generateFinReport()" class="btn btn-primary btn-sm">📋 عرض التقرير</button>
+      <button onclick="printFinReport()" class="btn btn-outline btn-sm">🖨️ طباعة</button>
+    </div>
+
+    <!-- التقرير -->
+    <div id="fin-report-output"></div>
+  </div>`;
+}
+
+function toggleFinBranch(b){
+  const idx=finReportBranches.indexOf(b);
+  if(idx>=0) finReportBranches.splice(idx,1);
+  else finReportBranches.push(b);
+  if(!finReportBranches.length) finReportBranches=[...BRANCHES];
+  showTab('fin-reports');
+}
+
+function generateFinReport(){
+  const el=document.getElementById('fin-report-output');
+  if(!el) return;
+  const brs=finReportBranches;
+
+  if(finReportType==='daily'){
+    const day=document.getElementById('fin-report-date')?.value||getTodayKey();
+    el.innerHTML=buildDailyReport(day,brs);
+  } else if(finReportType==='monthly'){
+    const month=document.getElementById('fin-report-month')?.value||getTodayKey().slice(0,7);
+    el.innerHTML=buildMonthlyReport(month,brs);
+  } else {
+    const year=document.getElementById('fin-report-year')?.value||getTodayKey().slice(0,4);
+    el.innerHTML=buildYearlyReport(year,brs);
+  }
+}
+
+function buildDailyReport(day, brs){
+  let totalRev=0, totalExp=0, catTotals={};
+  FIN_CATS.forEach(c=>catTotals[c.id]=0);
+  let rows='';
+
+  brs.forEach(b=>{
+    const bd=dailyFinance[day]?.[b];
+    if(!bd) { rows+=`<div style="padding:0.6rem;border-bottom:1px solid var(--border);color:var(--text3);font-size:0.85rem">🏪 ${b} — لا توجد بيانات</div>`; return; }
+    const bExp=bd.expenses.reduce((s,e)=>s+e.amount,0);
+    const bNet=(bd.revenue||0)-bExp;
+    totalRev+=bd.revenue||0; totalExp+=bExp;
+    bd.expenses.forEach(e=>{ catTotals[e.cat]=(catTotals[e.cat]||0)+e.amount; });
+
+    rows+=`<div style="border:1px solid var(--border);border-radius:10px;margin-bottom:0.75rem;overflow:hidden">
+      <div style="background:var(--gold-pale);padding:0.6rem 0.8rem;display:flex;justify-content:space-between;font-weight:700">
+        <span>🏪 فرع ${b}</span>
+        <span style="color:${bNet>=0?'var(--green)':'var(--red)'}">صافي: ${fmtNum(bNet)} ${CURRENCY}</span>
+      </div>
+      <div style="padding:0.5rem 0.8rem;display:flex;gap:1.5rem;font-size:0.85rem;border-bottom:1px solid var(--border)">
+        <span>إيراد: <strong style="color:var(--green)">${fmtNum(bd.revenue)}</strong></span>
+        <span>مصروفات: <strong style="color:var(--red)">${fmtNum(bExp)}</strong></span>
+      </div>
+      ${bd.expenses.length?bd.expenses.map(e=>{
+        const cat=FIN_CATS.find(c=>c.id===e.cat)||FIN_CATS[3];
+        return `<div style="padding:0.35rem 0.8rem;border-bottom:1px solid rgba(0,0,0,0.04);display:flex;justify-content:space-between;font-size:0.82rem">
+          <span>${cat.icon} ${e.desc} <span style="color:var(--text3);font-size:0.72rem">(${cat.label})</span></span>
+          <span style="color:var(--red);font-weight:600">${fmtNum(e.amount)}</span>
+        </div>`;
+      }).join(''):'<div style="padding:0.4rem 0.8rem;font-size:0.82rem;color:var(--text3)">لا توجد مصروفات</div>'}
+      ${bd.notes?`<div style="padding:0.4rem 0.8rem;font-size:0.8rem;color:var(--text3);background:var(--gold-pale)">📝 ${bd.notes}</div>`:''}
+    </div>`;
+  });
+
+  const net=totalRev-totalExp;
+  return `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.5rem;margin-bottom:1rem">
+    <div class="stat" style="padding:0.6rem"><div class="stat-n" style="color:var(--green);font-size:1.1rem">${fmtNum(totalRev)}</div><div class="stat-l">الإيرادات</div></div>
+    <div class="stat" style="padding:0.6rem"><div class="stat-n" style="color:var(--red);font-size:1.1rem">${fmtNum(totalExp)}</div><div class="stat-l">المصروفات</div></div>
+    <div class="stat" style="padding:0.6rem"><div class="stat-n" style="color:${net>=0?'var(--green)':'var(--red)'};font-size:1.1rem">${fmtNum(net)}</div><div class="stat-l">الصافي</div></div>
+  </div>
+  ${FIN_CATS.some(c=>catTotals[c.id]>0)?`<div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem">
+    ${FIN_CATS.filter(c=>catTotals[c.id]>0).map(c=>`<div style="background:${c.color}10;border:1px solid ${c.color}30;border-radius:8px;padding:0.4rem 0.7rem;font-size:0.82rem">
+      ${c.icon} ${c.label}: <strong style="color:${c.color}">${fmtNum(catTotals[c.id])}</strong>
+    </div>`).join('')}
+  </div>`:''}
+  ${rows}`;
+}
+
+function buildMonthlyReport(month, brs){
+  const days=Object.keys(dailyFinance).filter(d=>d.startsWith(month)).sort();
+  if(!days.length) return '<div class="alert alert-i">لا توجد بيانات لهذا الشهر</div>';
+
+  let totalRev=0, totalExp=0, catTotals={};
+  FIN_CATS.forEach(c=>catTotals[c.id]=0);
+  let branchData={};
+
+  brs.forEach(b=>{branchData[b]={rev:0,exp:0,days:0};});
+
+  days.forEach(d=>{
+    brs.forEach(b=>{
+      const bd=dailyFinance[d]?.[b];
+      if(!bd) return;
+      branchData[b].rev+=bd.revenue||0;
+      const dExp=bd.expenses.reduce((s,e)=>s+e.amount,0);
+      branchData[b].exp+=dExp;
+      if(bd.revenue>0||dExp>0) branchData[b].days++;
+      totalRev+=bd.revenue||0; totalExp+=dExp;
+      bd.expenses.forEach(e=>{ catTotals[e.cat]=(catTotals[e.cat]||0)+e.amount; });
+    });
+  });
+
+  const net=totalRev-totalExp;
+  return `<div style="text-align:center;font-size:1.1rem;font-weight:700;color:var(--gold);margin-bottom:1rem">${formatMonth(month)}</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.5rem;margin-bottom:1rem">
+    <div class="stat" style="padding:0.6rem"><div class="stat-n" style="color:var(--green);font-size:1.1rem">${fmtNum(totalRev)}</div><div class="stat-l">الإيرادات</div></div>
+    <div class="stat" style="padding:0.6rem"><div class="stat-n" style="color:var(--red);font-size:1.1rem">${fmtNum(totalExp)}</div><div class="stat-l">المصروفات</div></div>
+    <div class="stat" style="padding:0.6rem"><div class="stat-n" style="color:${net>=0?'var(--green)':'var(--red)'};font-size:1.1rem">${fmtNum(net)}</div><div class="stat-l">الصافي</div></div>
+  </div>
+  ${FIN_CATS.some(c=>catTotals[c.id]>0)?`<div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem">
+    ${FIN_CATS.filter(c=>catTotals[c.id]>0).map(c=>`<div style="background:${c.color}10;border:1px solid ${c.color}30;border-radius:8px;padding:0.4rem 0.7rem;font-size:0.82rem">
+      ${c.icon} ${c.label}: <strong style="color:${c.color}">${fmtNum(catTotals[c.id])}</strong>
+    </div>`).join('')}
+  </div>`:''}
+  ${brs.map(b=>{
+    const bd=branchData[b];
+    const bNet=bd.rev-bd.exp;
+    return `<div style="border:1px solid var(--border);border-radius:10px;margin-bottom:0.5rem;padding:0.75rem 1rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem">
+      <div><span style="font-weight:700">🏪 ${b}</span> <span style="font-size:0.78rem;color:var(--text3)">(${bd.days} يوم)</span></div>
+      <div style="display:flex;gap:1rem;font-size:0.85rem">
+        <span>إيراد: <strong style="color:var(--green)">${fmtNum(bd.rev)}</strong></span>
+        <span>مصروف: <strong style="color:var(--red)">${fmtNum(bd.exp)}</strong></span>
+        <span>صافي: <strong style="color:${bNet>=0?'var(--green)':'var(--red)'}">${fmtNum(bNet)}</strong></span>
+      </div>
+    </div>`;
+  }).join('')}
+
+  <!-- تفصيل يومي -->
+  <div style="margin-top:1rem">
+    <div style="font-weight:700;color:var(--gold);margin-bottom:0.5rem;font-size:0.88rem">التفصيل اليومي:</div>
+    ${days.reverse().map(d=>{
+      let dRev=0,dExp=0;
+      brs.forEach(b=>{
+        const bd=dailyFinance[d]?.[b];
+        if(bd){ dRev+=bd.revenue||0; dExp+=bd.expenses.reduce((s,e)=>s+e.amount,0); }
+      });
+      if(dRev===0&&dExp===0) return '';
+      return `<div style="display:flex;justify-content:space-between;padding:0.4rem 0.5rem;border-bottom:1px solid var(--border);font-size:0.82rem">
+        <span>${d}</span>
+        <div style="display:flex;gap:1rem">
+          <span style="color:var(--green)">${fmtNum(dRev)}</span>
+          <span style="color:var(--red)">${fmtNum(dExp)}</span>
+          <span style="font-weight:700;color:${(dRev-dExp)>=0?'var(--green)':'var(--red)'}">${fmtNum(dRev-dExp)}</span>
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+function buildYearlyReport(year, brs){
+  const months=[...new Set(Object.keys(dailyFinance).filter(d=>d.startsWith(year)).map(d=>d.slice(0,7)))].sort();
+  if(!months.length) return '<div class="alert alert-i">لا توجد بيانات لهذه السنة</div>';
+
+  let grandRev=0, grandExp=0;
+  let monthRows='';
+
+  months.forEach(m=>{
+    const days=Object.keys(dailyFinance).filter(d=>d.startsWith(m));
+    let mRev=0, mExp=0;
+    days.forEach(d=>{
+      brs.forEach(b=>{
+        const bd=dailyFinance[d]?.[b];
+        if(!bd) return;
+        mRev+=bd.revenue||0;
+        mExp+=bd.expenses.reduce((s,e)=>s+e.amount,0);
+      });
+    });
+    grandRev+=mRev; grandExp+=mExp;
+    const mNet=mRev-mExp;
+    monthRows+=`<div style="display:flex;justify-content:space-between;padding:0.6rem 0.75rem;border-bottom:1px solid var(--border);align-items:center">
+      <span style="font-weight:700">${formatMonth(m)}</span>
+      <div style="display:flex;gap:1.5rem;font-size:0.85rem">
+        <span>إيراد: <strong style="color:var(--green)">${fmtNum(mRev)}</strong></span>
+        <span>مصروف: <strong style="color:var(--red)">${fmtNum(mExp)}</strong></span>
+        <span>صافي: <strong style="color:${mNet>=0?'var(--green)':'var(--red)'}">${fmtNum(mNet)}</strong></span>
+      </div>
+    </div>`;
+  });
+
+  // Branch yearly breakdown
+  let branchRows='';
+  brs.forEach(b=>{
+    let bRev=0,bExp=0;
+    Object.keys(dailyFinance).filter(d=>d.startsWith(year)).forEach(d=>{
+      const bd=dailyFinance[d]?.[b];
+      if(!bd) return;
+      bRev+=bd.revenue||0; bExp+=bd.expenses.reduce((s,e)=>s+e.amount,0);
+    });
+    const bNet=bRev-bExp;
+    branchRows+=`<div style="display:flex;justify-content:space-between;padding:0.6rem 0.75rem;border-bottom:1px solid var(--border)">
+      <span style="font-weight:700">🏪 ${b}</span>
+      <div style="display:flex;gap:1rem;font-size:0.85rem">
+        <span style="color:var(--green)">${fmtNum(bRev)}</span>
+        <span style="color:var(--red)">${fmtNum(bExp)}</span>
+        <span style="font-weight:700;color:${bNet>=0?'var(--green)':'var(--red)'}">${fmtNum(bNet)}</span>
+      </div>
+    </div>`;
+  });
+
+  const grandNet=grandRev-grandExp;
+  return `<div style="text-align:center;font-size:1.2rem;font-weight:800;color:var(--gold);margin-bottom:1rem">التقرير السنوي — ${year}</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.5rem;margin-bottom:1rem">
+    <div class="stat" style="padding:0.6rem"><div class="stat-n" style="color:var(--green);font-size:1.1rem">${fmtNum(grandRev)}</div><div class="stat-l">إجمالي الإيرادات</div></div>
+    <div class="stat" style="padding:0.6rem"><div class="stat-n" style="color:var(--red);font-size:1.1rem">${fmtNum(grandExp)}</div><div class="stat-l">إجمالي المصروفات</div></div>
+    <div class="stat" style="padding:0.6rem"><div class="stat-n" style="color:${grandNet>=0?'var(--green)':'var(--red)'};font-size:1.1rem">${fmtNum(grandNet)}</div><div class="stat-l">صافي الربح</div></div>
+  </div>
+  <div style="font-weight:700;color:var(--gold);margin-bottom:0.5rem">الأفرع:</div>
+  <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:1rem">${branchRows}</div>
+  <div style="font-weight:700;color:var(--gold);margin-bottom:0.5rem">الأشهر:</div>
+  <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden">${monthRows}</div>`;
+}
+
+function printFinReport(){
+  const brs=finReportBranches;
+  let title='', content='';
+
+  if(finReportType==='daily'){
+    const day=document.getElementById('fin-report-date')?.value||getTodayKey();
+    title=`التقرير اليومي — ${day}`;
+    content=buildFinPrintContent('daily',day,brs);
+  } else if(finReportType==='monthly'){
+    const month=document.getElementById('fin-report-month')?.value||getTodayKey().slice(0,7);
+    title=`التقرير الشهري — ${formatMonth(month)}`;
+    content=buildFinPrintContent('monthly',month,brs);
+  } else {
+    const year=document.getElementById('fin-report-year')?.value||getTodayKey().slice(0,4);
+    title=`التقرير السنوي — ${year}`;
+    content=buildFinPrintContent('yearly',year,brs);
+  }
+
+  const brsLabel=brs.length===BRANCHES.length?'جميع الأفرع':brs.join(' — ');
+  const win=window.open('','_blank');
+  win.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head>
+  <meta charset="UTF-8"><title>${title} — الخيال</title>
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;600;700;800&family=Cairo:wght@700;900&display=swap" rel="stylesheet">
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Tajawal',sans-serif;background:#fff;color:#1E1610;font-size:13px;direction:rtl}
+    .watermark-logo{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-35deg);opacity:0.07;z-index:0;pointer-events:none;width:380px}
+    .page{max-width:210mm;margin:0 auto;padding:10mm;position:relative;z-index:1}
+    .hdr{background:linear-gradient(135deg,#1B4332 0%,#12100C 60%);padding:14px 20px;border-radius:8px 8px 0 0;text-align:center}
+    .hdr-logo{height:50px;margin-bottom:4px;border-radius:6px;filter:drop-shadow(0 0 10px rgba(184,146,42,0.3))}
+    .tagline{color:rgba(184,146,42,0.5);font-size:10px;letter-spacing:0.2em;margin-top:2px}
+    .divider{height:3px;background:linear-gradient(90deg,transparent,#B8922A,transparent);margin-bottom:14px}
+    .title{text-align:center;font-size:18px;font-weight:700;color:#B8922A;margin-bottom:4px}
+    .subtitle{text-align:center;font-size:11px;color:#9A8060;margin-bottom:14px}
+    .summary{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px}
+    .sbox{background:#FAF4E4;border:1px solid rgba(184,146,42,0.2);border-radius:8px;padding:10px;text-align:center}
+    .sbox-label{font-size:9px;color:#9A8060;font-weight:700}
+    .sbox-val{font-size:20px;font-weight:800;margin-top:3px}
+    table{width:100%;border-collapse:collapse;border:1px solid rgba(184,146,42,0.2);border-radius:8px;overflow:hidden;margin-bottom:14px}
+    th{background:#FAF4E4;color:#B8922A;font-weight:700;padding:7px 10px;font-size:11px}
+    td{padding:6px 10px;border-bottom:1px solid rgba(184,146,42,0.12);font-size:11px}
+    .section-title{font-weight:700;font-size:13px;color:#B8922A;margin:12px 0 8px;padding-bottom:5px;border-bottom:1px dashed rgba(184,146,42,0.3)}
+    .footer{text-align:center;font-size:9px;color:#9A8060;margin-top:14px;padding-top:10px;border-top:1px dashed rgba(184,146,42,0.2)}
+    .sign-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-top:24px;padding-top:14px;border-top:1px dashed rgba(184,146,42,0.3)}
+    .sign-box{text-align:center;font-size:11px;color:#9A8060}
+    .sign-line{border-top:1px solid #D4A843;margin-top:28px;margin-bottom:5px}
+    @media print{.watermark-logo{position:fixed}.page{padding:6mm}}
+  </style></head><body>
+  <img src="logo-web.png" class="watermark-logo">
+  <div class="page">
+    <div class="hdr"><img src="logo-web.png" class="hdr-logo" alt="الخيال"><div class="tagline">للزي الرجالي العربي</div></div>
+    <div class="divider"></div>
+    <div class="title">${title}</div>
+    <div class="subtitle">${brsLabel}</div>
+    ${content}
+    <div class="sign-grid">
+      <div class="sign-box"><div class="sign-line"></div>مدير المعمل</div>
+      <div class="sign-box"><div class="sign-line"></div>المحاسب</div>
+      <div class="sign-box"><div class="sign-line"></div>المراجع</div>
+    </div>
+    <div class="footer">✦ الخيال للزي الرجالي العربي ✦ | تقرير مالي داخلي | طُبع: ${new Date().toLocaleString('ar-IQ')}<br><span style="color:rgba(184,146,42,0.4);font-size:8px">developed by YasinGhaeb</span></div>
+  </div>
+  <script>window.onload=()=>{window.print()}<\/script>
+  </body></html>`);
+  win.document.close();
+}
+
+function buildFinPrintContent(type, period, brs){
+  let totalRev=0, totalExp=0, catTotals={};
+  FIN_CATS.forEach(c=>catTotals[c.id]=0);
+
+  if(type==='daily'){
+    let brRows='';
+    brs.forEach(b=>{
+      const bd=dailyFinance[period]?.[b];
+      if(!bd||(!bd.revenue&&!bd.expenses.length)) return;
+      const bExp=bd.expenses.reduce((s,e)=>s+e.amount,0);
+      totalRev+=bd.revenue||0; totalExp+=bExp;
+      bd.expenses.forEach(e=>catTotals[e.cat]=(catTotals[e.cat]||0)+e.amount);
+      brRows+=\`<tr style="background:#FAF4E4"><td colspan="4" style="font-weight:700;color:#B8922A;padding:6px 10px">🏪 فرع \${b} — إيراد: \${fmtNum(bd.revenue)} ${CURRENCY}</td></tr>\`;
+      bd.expenses.forEach(e=>{
+        const cat=FIN_CATS.find(c=>c.id===e.cat)||FIN_CATS[3];
+        brRows+=\`<tr><td>\${e.time||'—'}</td><td>\${e.desc}</td><td>\${cat.label}</td><td style="color:#8B1A1A;font-weight:700">\${fmtNum(e.amount)}</td></tr>\`;
+      });
+    });
+    const net=totalRev-totalExp;
+    return \`<div class="summary">
+      <div class="sbox"><div class="sbox-label">الإيرادات</div><div class="sbox-val" style="color:#1E6B3A">\${fmtNum(totalRev)}</div></div>
+      <div class="sbox"><div class="sbox-label">المصروفات</div><div class="sbox-val" style="color:#8B1A1A">\${fmtNum(totalExp)}</div></div>
+      <div class="sbox"><div class="sbox-label">الصافي</div><div class="sbox-val" style="color:\${net>=0?'#1E6B3A':'#8B1A1A'}">\${fmtNum(net)}</div></div>
+    </div>
+    <table><thead><tr><th>الوقت</th><th>البيان</th><th>التصنيف</th><th>المبلغ</th></tr></thead><tbody>\${brRows||'<tr><td colspan="4" style="text-align:center">لا توجد بيانات</td></tr>'}</tbody></table>\`;
+
+  } else if(type==='monthly'){
+    const days=Object.keys(dailyFinance).filter(d=>d.startsWith(period)).sort();
+    let dayRows='', branchSummary='';
+    let brData={};
+    brs.forEach(b=>brData[b]={rev:0,exp:0});
+
+    days.forEach(d=>{
+      let dRev=0,dExp=0;
+      brs.forEach(b=>{
+        const bd=dailyFinance[d]?.[b];
+        if(!bd) return;
+        dRev+=bd.revenue||0;
+        const de=bd.expenses.reduce((s,e)=>s+e.amount,0);
+        dExp+=de;
+        brData[b].rev+=bd.revenue||0; brData[b].exp+=de;
+        bd.expenses.forEach(e=>catTotals[e.cat]=(catTotals[e.cat]||0)+e.amount);
+      });
+      totalRev+=dRev; totalExp+=dExp;
+      if(dRev||dExp) dayRows+=\`<tr><td>\${d}</td><td style="color:#1E6B3A">\${fmtNum(dRev)}</td><td style="color:#8B1A1A">\${fmtNum(dExp)}</td><td style="font-weight:700;color:\${(dRev-dExp)>=0?'#1E6B3A':'#8B1A1A'}">\${fmtNum(dRev-dExp)}</td></tr>\`;
+    });
+
+    brs.forEach(b=>{
+      const bNet=brData[b].rev-brData[b].exp;
+      branchSummary+=\`<tr><td style="font-weight:700">🏪 \${b}</td><td style="color:#1E6B3A">\${fmtNum(brData[b].rev)}</td><td style="color:#8B1A1A">\${fmtNum(brData[b].exp)}</td><td style="font-weight:700;color:\${bNet>=0?'#1E6B3A':'#8B1A1A'}">\${fmtNum(bNet)}</td></tr>\`;
+    });
+
+    const net=totalRev-totalExp;
+    return \`<div class="summary">
+      <div class="sbox"><div class="sbox-label">إجمالي الإيرادات</div><div class="sbox-val" style="color:#1E6B3A">\${fmtNum(totalRev)}</div></div>
+      <div class="sbox"><div class="sbox-label">إجمالي المصروفات</div><div class="sbox-val" style="color:#8B1A1A">\${fmtNum(totalExp)}</div></div>
+      <div class="sbox"><div class="sbox-label">صافي الربح</div><div class="sbox-val" style="color:\${net>=0?'#1E6B3A':'#8B1A1A'}">\${fmtNum(net)}</div></div>
+    </div>
+    <div class="section-title">ملخص الأفرع</div>
+    <table><thead><tr><th>الفرع</th><th>الإيرادات</th><th>المصروفات</th><th>الصافي</th></tr></thead><tbody>\${branchSummary}</tbody></table>
+    <div class="section-title">التفصيل اليومي</div>
+    <table><thead><tr><th>التاريخ</th><th>الإيرادات</th><th>المصروفات</th><th>الصافي</th></tr></thead><tbody>\${dayRows}</tbody></table>\`;
+
+  } else {
+    const months=[...new Set(Object.keys(dailyFinance).filter(d=>d.startsWith(period)).map(d=>d.slice(0,7)))].sort();
+    let monthRows='', branchSummary='';
+    let brData={};
+    brs.forEach(b=>brData[b]={rev:0,exp:0});
+
+    months.forEach(m=>{
+      const mDays=Object.keys(dailyFinance).filter(d=>d.startsWith(m));
+      let mRev=0,mExp=0;
+      mDays.forEach(d=>{
+        brs.forEach(b=>{
+          const bd=dailyFinance[d]?.[b];
+          if(!bd) return;
+          mRev+=bd.revenue||0;
+          const de=bd.expenses.reduce((s,e)=>s+e.amount,0);
+          mExp+=de;
+          brData[b].rev+=bd.revenue||0; brData[b].exp+=de;
+        });
+      });
+      totalRev+=mRev; totalExp+=mExp;
+      monthRows+=\`<tr><td>\${formatMonth(m)}</td><td style="color:#1E6B3A">\${fmtNum(mRev)}</td><td style="color:#8B1A1A">\${fmtNum(mExp)}</td><td style="font-weight:700;color:\${(mRev-mExp)>=0?'#1E6B3A':'#8B1A1A'}">\${fmtNum(mRev-mExp)}</td></tr>\`;
+    });
+
+    brs.forEach(b=>{
+      const bNet=brData[b].rev-brData[b].exp;
+      branchSummary+=\`<tr><td style="font-weight:700">🏪 \${b}</td><td style="color:#1E6B3A">\${fmtNum(brData[b].rev)}</td><td style="color:#8B1A1A">\${fmtNum(brData[b].exp)}</td><td style="font-weight:700;color:\${bNet>=0?'#1E6B3A':'#8B1A1A'}">\${fmtNum(bNet)}</td></tr>\`;
+    });
+
+    const net=totalRev-totalExp;
+    return \`<div class="summary">
+      <div class="sbox"><div class="sbox-label">إجمالي الإيرادات</div><div class="sbox-val" style="color:#1E6B3A">\${fmtNum(totalRev)}</div></div>
+      <div class="sbox"><div class="sbox-label">إجمالي المصروفات</div><div class="sbox-val" style="color:#8B1A1A">\${fmtNum(totalExp)}</div></div>
+      <div class="sbox"><div class="sbox-label">صافي الربح</div><div class="sbox-val" style="color:\${net>=0?'#1E6B3A':'#8B1A1A'}">\${fmtNum(net)}</div></div>
+    </div>
+    <div class="section-title">ملخص الأفرع</div>
+    <table><thead><tr><th>الفرع</th><th>الإيرادات</th><th>المصروفات</th><th>الصافي</th></tr></thead><tbody>\${branchSummary}</tbody></table>
+    <div class="section-title">الأشهر</div>
+    <table><thead><tr><th>الشهر</th><th>الإيرادات</th><th>المصروفات</th><th>الصافي</th></tr></thead><tbody>\${monthRows}</tbody></table>\`;
+  }
+}
+
+// ============================================================
+// LEGACY ACCOUNTS (kept for monthly data compatibility)
+// ============================================================
 
 function renderAccounts(){
   // default to current month
@@ -1656,7 +2318,7 @@ function formatMonth(m){
 
 
 function exportData(){
-  const data={orders,editReqs,salesData,PINS,exportDate:new Date().toISOString(),version:'2.0'};
+  const data={orders,editReqs,salesData,dailyFinance,PINS,exportDate:new Date().toISOString(),version:'3.0'};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
@@ -1806,6 +2468,14 @@ function submitOrder(){
   };
   orders.push(ord);
   customers[ord.cust]={phone:ord.phone,meas:ord.meas,lastOrder:ord.id,date:ord.date};
+  // ربط العربون تلقائياً بالحسابات اليومية
+  if(deposit>0){
+    const today=getTodayKey();
+    if(!dailyFinance[today]) dailyFinance[today]={};
+    if(!dailyFinance[today][branch]) dailyFinance[today][branch]={revenue:0,expenses:[],notes:''};
+    dailyFinance[today][branch].revenue += deposit;
+    syncFinToSalesData(today);
+  }
   logActivity(`إرسال طلب ${ord.id} للعميل ${ord.cust}`);
   saveData();
   buildNav();
@@ -1834,12 +2504,19 @@ function confirmPayment(id){
 function _doConfirmPayment(id){
   const ord = orders.find(o=>o.id===id);
   if(!ord) return;
-  const monthKey = new Date().toISOString().slice(0,7);
+  const today = getTodayKey();
+  const monthKey = today.slice(0,7);
+  // تحديث salesData الشهري
   if(!salesData[monthKey]) salesData[monthKey]={};
   if(!salesData[monthKey][ord.branch]) salesData[monthKey][ord.branch]={revenue:0,rent:0,salaries:0,daily:0,other:0,notes:''};
   salesData[monthKey][ord.branch].revenue += (ord.remaining||0);
+  // ربط المبلغ المتبقي بالحسابات اليومية تلقائياً
+  if(!dailyFinance[today]) dailyFinance[today]={};
+  if(!dailyFinance[today][ord.branch]) dailyFinance[today][ord.branch]={revenue:0,expenses:[],notes:''};
+  dailyFinance[today][ord.branch].revenue += (ord.remaining||0);
+  syncFinToSalesData(today);
   ord.status = 'delivered';
-  ord.deliveredDate = new Date().toISOString().slice(0,10);
+  ord.deliveredDate = today;
   ord.paymentReceived = true;
   const collected = ord.remaining;
   ord.remaining = 0;
@@ -2535,12 +3212,17 @@ function updateSyncStatus(){
   el.innerHTML = map[sbStatus] || map.connecting;
 }
 
+let _refreshTimer=null;
 function silentRefresh(){
-  if(!currentTab) return;
-  if(document.getElementById('modal').classList.contains('open')) return;
-  const a = document.activeElement;
-  if(a && (a.tagName==='INPUT'||a.tagName==='TEXTAREA'||a.tagName==='SELECT')) return;
-  showTab(currentTab);
+  if(_refreshTimer) clearTimeout(_refreshTimer);
+  _refreshTimer = setTimeout(()=>{
+    _refreshTimer=null;
+    if(!currentTab) return;
+    if(document.getElementById('modal').classList.contains('open')) return;
+    const a = document.activeElement;
+    if(a && (a.tagName==='INPUT'||a.tagName==='TEXTAREA'||a.tagName==='SELECT')) return;
+    showTab(currentTab);
+  }, 300);
 }
 
 async function saveToSupabase(){
@@ -2552,6 +3234,7 @@ async function saveToSupabase(){
     const salesWithExtras = Object.assign({}, salesData, {
       _customers: customers,
       _daily: dailyLogs,
+      _finance: dailyFinance,
       _activity: activityLog.slice(0,50), // نحفظ آخر 50 نشاط فقط
       _presence: presence
     });
@@ -2592,6 +3275,7 @@ async function loadFromSupabase(){
         const sd = data.sales_data;
         if(sd._customers){ customers = sd._customers; }
         if(sd._daily){ dailyLogs = sd._daily; }
+        if(sd._finance){ dailyFinance = sd._finance; }
         if(sd._activity){ activityLog = sd._activity; }
         // نُدمج presence — كل فرع يُحدّث مفتاحه فقط، نأخذ الأحدث بالـ ts
         if(sd._presence){
@@ -2610,6 +3294,7 @@ async function loadFromSupabase(){
       if(data.activity_log) activityLog=data.activity_log;
       if(data.daily_logs) dailyLogs=data.daily_logs;
       localStorage.setItem('khy_daily',JSON.stringify(dailyLogs));
+      localStorage.setItem('khy_finance',JSON.stringify(dailyFinance));
       localStorage.setItem('khy_orders',JSON.stringify(orders));
       localStorage.setItem('khy_reqs',JSON.stringify(editReqs));
       localStorage.setItem('khy_pins',JSON.stringify(PINS));
@@ -2676,6 +3361,7 @@ function subscribeRealtime(){
         const sd=d.sales_data;
         if(sd._customers) customers=sd._customers;
         if(sd._daily) dailyLogs=sd._daily;
+        if(sd._finance) dailyFinance=sd._finance;
         if(sd._activity) activityLog=sd._activity;
         // دمج presence — نأخذ الأحدث per-branch
         if(sd._presence){
