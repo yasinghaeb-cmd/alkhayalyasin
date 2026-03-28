@@ -489,6 +489,10 @@ function loadData(){
 }
 loadData();
 
+// حفظ HTML شاشة الدخول الأصلية لإعادة بنائها عند الخروج
+let _originalLoginHTML = '';
+document.addEventListener('DOMContentLoaded', ()=>{ _originalLoginHTML = document.getElementById('login-screen').innerHTML; });
+
 // تهيئة Supabase بعد اكتمال تحميل الصفحة
 window.addEventListener('load', initSupabase);
 
@@ -497,6 +501,7 @@ window.addEventListener('load', initSupabase);
 // ============================================================
 let currentTab='';
 let role='admin', branch='', selRole='admin', selBranch='';
+let currentEmployee = ''; // اسم المو��ف الحالي في الجلسة
 
 // ============================================================
 // ACTIVITY LOG
@@ -509,8 +514,10 @@ function getDeviceInfo(){
 }
 function logActivity(action){
   const dev=getDeviceInfo();
+  const empName = currentEmployee || '';
   activityLog.unshift({
     who: role==='admin'?'المعمل': role==='accountant'?'المحاسب':`فرع ${branch}`,
+    emp: empName,
     role: role,
     branch: branch||role,
     action, time: new Date().toLocaleString('ar-IQ'),
@@ -617,7 +624,7 @@ function doLogin(){
   const expectedKey=selRole==='admin'?'admin':selRole==='accountant'?'محاسب':selBranch;
   const expected=PINS[expectedKey]||'';
   if(!expected){snack('⚠ لم يتم تعيين رمز لهذا الحساب');return;}
-  if(!pinInput){return;}
+  if(!pinInput){snack('⚠ أدخل كلمة المرور أولاً');return;}
   if(pinInput!==expected){
     _pinReal='';
     document.getElementById('login-pin').value='';
@@ -629,14 +636,54 @@ function doLogin(){
   role=selRole; branch=selBranch;
   _pinReal='';
   document.getElementById('login-pin').value='';
+  // إذا كان فرع، اطلب اسم الموظف أولاً
+  if(role==='branch' && branch){
+    _showEmployeePrompt();
+    return;
+  }
+  currentEmployee = role==='admin'?'الإدارة':'المحاسب';
+  _completeLogin();
+}
+function _showEmployeePrompt(){
+  document.getElementById('login-screen').innerHTML=`
+    <div class="login-wrap">
+      <div class="login-brand"><div class="login-logo">🏪</div><div class="login-tagline">فرع ${branch}</div></div>
+      <div class="login-box" style="text-align:center">
+        <div style="color:rgba(255,255,255,0.7);font-size:0.95rem;margin-bottom:1rem">أدخل اسمك لتسجيل الدخول</div>
+        <input id="emp-name-input" type="text" placeholder="اسم الموظف الكامل"
+          style="width:100%;padding:0.75rem 1rem;background:rgba(255,255,255,0.06);border:1px solid rgba(184,146,42,0.3);border-radius:10px;color:#fff;font-family:Tajawal,sans-serif;font-size:1.1rem;outline:none;text-align:center;margin-bottom:0.5rem"
+          onkeydown="if(event.key==='Enter')_submitEmployeeName()" autofocus>
+        <div id="emp-err" style="display:none;color:#FF8080;font-size:0.8rem;margin-bottom:0.5rem">⚠ يرجى إدخال اسمك</div>
+        <button class="enter-btn" onclick="_submitEmployeeName()" style="margin-top:0.5rem">تسجيل الدخول ←</button>
+      </div>
+    </div>`;
+  setTimeout(()=>document.getElementById('emp-name-input')?.focus(),100);
+}
+function _submitEmployeeName(){
+  const name=document.getElementById('emp-name-input')?.value?.trim();
+  if(!name||name.length<2){
+    document.getElementById('emp-err').style.display='block';
+    setTimeout(()=>{const e=document.getElementById('emp-err');if(e)e.style.display='none';},3000);
+    return;
+  }
+  currentEmployee = name;
+  // أعد بناء شاشة الدخول الأصلية (للخروج لاحقاً)
+  _rebuildLoginScreen();
+  _completeLogin();
+}
+function _rebuildLoginScreen(){
+  document.getElementById('login-screen').innerHTML=_originalLoginHTML;
+}
+function _completeLogin(){
   document.getElementById('login-screen').style.display='none';
   document.getElementById('app').style.display='flex';
-  document.getElementById('user-badge').textContent=role==='admin'?'👑 إدارة المعمل':role==='accountant'?'💰 المحاسب':`🏪 فرع ${branch}`;
+  const badge = role==='admin'?'👑 إدارة المعمل':role==='accountant'?'💰 المحاسب':`🏪 ${branch} — ${currentEmployee}`;
+  document.getElementById('user-badge').textContent=badge;
   logActivity('تسجيل دخول');
   if(role!=='admin'&&role!=='accountant'&&branch){
-    presence[branch]={status:'online',ts:Date.now(),time:new Date().toLocaleString('ar-IQ')};
+    presence[branch]={status:'online',ts:Date.now(),time:new Date().toLocaleString('ar-IQ'),emp:currentEmployee};
     localStorage.setItem('khy_presence',JSON.stringify(presence));
-    savePresenceOnly(); // حفظ presence فقط — لا نلمس الطلبات
+    savePresenceOnly();
     startPresenceHeartbeat();
   }
   buildNav();
@@ -645,15 +692,19 @@ function doLogin(){
 function logout(){
   logActivity('تسجيل خروج');
   if(role!=='admin'&&role!=='accountant'&&branch){
-    presence[branch]={status:'offline',ts:Date.now(),time:new Date().toLocaleString('ar-IQ')};
+    presence[branch]={status:'offline',ts:Date.now(),time:new Date().toLocaleString('ar-IQ'),emp:currentEmployee};
     localStorage.setItem('khy_presence',JSON.stringify(presence));
     savePresenceOnly();
   }
   if(_presenceHeartbeatTimer){ clearInterval(_presenceHeartbeatTimer); _presenceHeartbeatTimer=null; }
+  currentEmployee='';
+  // أعد بناء شاشة الدخول الأصلية
+  if(_originalLoginHTML) document.getElementById('login-screen').innerHTML=_originalLoginHTML;
   document.getElementById('login-screen').style.display='flex';
   document.getElementById('app').style.display='none';
   _pinReal='';
-  document.getElementById('login-pin').value='';
+  const pinEl=document.getElementById('login-pin');
+  if(pinEl) pinEl.value='';
 }
 
 // ============================================================
@@ -672,6 +723,8 @@ function buildNav(){
       {id:'accepted-orders',l:'المستلمة'},
       {id:'edit-reqs',l:'طلبات التعديل',notif:pendCount},
       {id:'print-q',l:'قائمة الطباعة'},
+      {id:'fin-daily',l:'📊 الحسابات اليومية'},
+      {id:'fin-reports',l:'📋 التقارير المالية'},
       {id:'branches',l:'الأفرع'},
       {id:'pin-mgmt',l:'🔑 كلمات المرور'},
       {id:'activity-log',l:'📋 السجل'},
@@ -716,7 +769,9 @@ function showTab(id){
     'pin-mgmt':renderPinMgmt,system:renderSystem,'activity-log':renderActivityLog,
     'incoming-orders':renderIncomingOrders,'accepted-orders':renderAcceptedOrders
   };
-  c.innerHTML=map[id]?map[id]():'';
+  const html=map[id]?map[id]():'';
+  _lastContentHash=html;
+  c.innerHTML=html;
   if(id==='new-order') initMeasForm();
   if(id==='accounts') setTimeout(()=>initSalesTab(),0);
   if(id==='fin-daily') setTimeout(()=>initFinDaily(),0);
@@ -767,7 +822,42 @@ function renderDash(){
     <div class="card-hdr"><div class="card-title"><span class="card-icon">✏️</span> طلبات تعديل معلقة</div>
       <button class="btn btn-outline btn-sm" onclick="showTab('edit-reqs')">مراجعة</button></div>
     <div class="alert alert-w">⚠ يوجد ${pendEdit} طلب تعديل بانتظار مراجعتك</div>
-  </div>`:''}`;
+  </div>`:''}
+  ${_renderDashFinSummary()}`;
+}
+function _renderDashFinSummary(){
+  const today=getTodayKey();
+  const month=today.slice(0,7);
+  let todayRev=0,todayExp=0,monthRev=0,monthExp=0;
+  // إجمالي اليوم
+  if(dailyFinance[today]){
+    BRANCHES.forEach(b=>{
+      const bd=dailyFinance[today]?.[b];
+      if(bd){ todayRev+=bd.revenue||0; todayExp+=bd.expenses?.reduce((s,e)=>s+e.amount,0)||0; }
+    });
+  }
+  // إجمالي الشهر
+  Object.keys(dailyFinance).filter(d=>d.startsWith(month)).forEach(d=>{
+    BRANCHES.forEach(b=>{
+      const bd=dailyFinance[d]?.[b];
+      if(bd){ monthRev+=bd.revenue||0; monthExp+=bd.expenses?.reduce((s,e)=>s+e.amount,0)||0; }
+    });
+  });
+  // إجمالي المتبقي على العملاء
+  const totalRemaining=orders.filter(o=>o.status!=='delivered').reduce((s,o)=>s+(o.remaining||0),0);
+  const totalDeposits=orders.reduce((s,o)=>s+(o.deposit||0),0);
+  return `<div class="card" style="border-top:3px solid var(--gold)">
+    <div class="card-hdr"><div class="card-title"><span class="card-icon">💰</span> ملخص مالي</div>
+      <button class="btn btn-outline btn-sm" onclick="showTab('fin-daily')">الحسابات</button></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:0.6rem">
+      <div class="stat" style="padding:0.7rem"><div class="stat-n" style="color:var(--green);font-size:1.2rem">${fmtNum(todayRev)}</div><div class="stat-l">إيرادات اليوم</div></div>
+      <div class="stat" style="padding:0.7rem"><div class="stat-n" style="color:var(--red);font-size:1.2rem">${fmtNum(todayExp)}</div><div class="stat-l">مصاريف اليوم</div></div>
+      <div class="stat" style="padding:0.7rem"><div class="stat-n" style="color:${(todayRev-todayExp)>=0?'var(--green)':'var(--red)'};font-size:1.2rem">${fmtNum(todayRev-todayExp)}</div><div class="stat-l">صافي اليوم</div></div>
+      <div class="stat" style="padding:0.7rem"><div class="stat-n" style="color:var(--green);font-size:1.2rem">${fmtNum(monthRev)}</div><div class="stat-l">إيرادات الشهر</div></div>
+      <div class="stat" style="padding:0.7rem"><div class="stat-n" style="color:var(--amber);font-size:1.2rem">${fmtNum(totalDeposits)}</div><div class="stat-l">عربون محصّل</div></div>
+      <div class="stat" style="padding:0.7rem"><div class="stat-n" style="color:var(--red);font-size:1.2rem">${fmtNum(totalRemaining)}</div><div class="stat-l">متبقي على العملاء</div></div>
+    </div>
+  </div>`;
 }
 
 // ============================================================
@@ -1192,8 +1282,10 @@ function renderActivityLog(){
           const isOnline=p&&p.status==='online'&&(Date.now()-(p.ts||0))<3*60*1000;
           const dotColor=isOnline?'#22c55e':'#ef4444';
           const timeLabel=p&&p.time?p.time.split('،')[1]||p.time:'—';
+          const empOnline=p&&p.emp?p.emp:'';
           return `<div style="background:#fff;border:1px solid ${isOnline?'rgba(34,197,94,0.3)':'rgba(239,68,68,0.25)'};border-radius:12px;padding:0.85rem;text-align:center">
-            <div style="font-weight:700;font-size:0.92rem;margin-bottom:0.5rem">${b}</div>
+            <div style="font-weight:700;font-size:0.92rem;margin-bottom:0.3rem">${b}</div>
+            ${empOnline?`<div style="font-size:0.72rem;color:var(--dgreen);font-weight:600;margin-bottom:0.3rem">👤 ${empOnline}</div>`:''}
             <div style="width:18px;height:18px;border-radius:50%;background:${dotColor};margin:0 auto;box-shadow:0 0 8px ${dotColor}88"></div>
             <div style="font-size:0.65rem;color:var(--text3);margin-top:0.45rem">${timeLabel}</div>
           </div>`;
@@ -1205,9 +1297,11 @@ function renderActivityLog(){
           branchLogs.slice(0,50).map(l=>{
             const isIn=l.action==='تسجيل دخول';
             const devIcon=l.deviceIcon||'💻'; const devLabel=l.deviceLabel||'';
+            const empDisplay=l.emp?` (${l.emp})`:'';
             return `<div style="padding:0.45rem 0.75rem;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:0.5rem;font-size:0.82rem">
               <div style="display:flex;align-items:center;gap:0.4rem">
                 <span style="color:var(--gold);font-weight:700">${l.who}</span>
+                ${empDisplay?`<span style="color:var(--dgreen);font-weight:600;font-size:0.78rem">${empDisplay}</span>`:''}
                 <span style="color:${isIn?'var(--green)':'var(--red)'}">${isIn?'▶ دخل':'◼ غادر'}</span>
                 <span title="${devLabel}" style="font-size:1rem">${devIcon}</span>
                 <span style="font-size:0.72rem;color:var(--text3)">${devLabel}</span>
@@ -1402,9 +1496,26 @@ function savePin(key){
   const np=document.getElementById('new-pin')?.value;
   const cp=document.getElementById('confirm-pin')?.value;
   const err=document.getElementById('pin-modal-err');
-  if(!np||np.length<4){err.textContent='⚠ كلمة المرور يجب أن تكون 4 أحرف على الأقل';err.style.display='block';return;}
-  if(np.length>20){err.textContent='⚠ الحد الأقصى 20 حرف';err.style.display='block';return;}
-  if(np!==cp){err.textContent='⚠ كلمتا المرور غير متطابقتين';err.style.display='block';return;}
+  if(!np||np.length<4){
+    err.innerHTML='⚠ كلمة المرور قصيرة جداً — الحد الأدنى <strong>4 أحرف</strong>';
+    err.style.display='block';return;
+  }
+  if(np.length>20){
+    err.innerHTML='⚠ كلمة المرور طويلة جداً — الحد الأقصى <strong>20 حرف</strong>';
+    err.style.display='block';return;
+  }
+  if(/^\s|\s$/.test(np)){
+    err.innerHTML='⚠ كلمة المرور لا يجب أن تبدأ أو تنتهي بمسافة';
+    err.style.display='block';return;
+  }
+  if(!cp){
+    err.innerHTML='⚠ أعد إدخال كلمة المرور للتأكيد';
+    err.style.display='block';return;
+  }
+  if(np!==cp){
+    err.innerHTML='⚠ كلمتا المرور غير متطابقتين — تأكد من إعادة الإدخال بشكل صحيح';
+    err.style.display='block';return;
+  }
   PINS[key]=np; logActivity(`تغيير كلمة مرور ${key}`); saveData(); closeModal(); showTab('pin-mgmt');
   snack('✓ تم تحديث كلمة المرور بنجاح');
 }
@@ -2369,7 +2480,7 @@ function renderNewOrder(){
         </select>
       </div>
       <div class="fg"><label>موعد التسليم</label><input id="f-delivery" type="date" style="direction:ltr;color:var(--text)"></div>
-      <div class="fg"><label>اسم الموظف</label><input id="f-emp" placeholder="اسم موظف الفرع"></div>
+      <div class="fg"><label>اسم الموظف</label><input id="f-emp" value="${currentEmployee||''}" placeholder="اسم موظف الفرع" ${currentEmployee?'readonly style="background:var(--gold-pale);font-weight:600"':''}></div>
       <div class="fg"><label>اسم الخياط</label><input id="f-tailor" placeholder="اسم الخياط المسؤول"></div>
     </div>
 
@@ -2460,7 +2571,7 @@ function submitOrder(){
     status:'pending',locked:true,
     date:new Date().toISOString().slice(0,10),
     delivery:document.getElementById('f-delivery')?.value||'',
-    emp:document.getElementById('f-emp')?.value?.trim()||( role==='admin'?'الإدارة':'موظف الفرع'),
+    emp:document.getElementById('f-emp')?.value?.trim()||currentEmployee||(role==='admin'?'الإدارة':'موظف الفرع'),
     tailor:document.getElementById('f-tailor')?.value?.trim()||'',
     meas:collectMeas(),
     notes:document.getElementById('f-notes')?.value||'',
@@ -2555,7 +2666,7 @@ function saveDraft(){
     status:'new',locked:false,
     date:new Date().toISOString().slice(0,10),
     delivery:document.getElementById('f-delivery')?.value||'',
-    emp:document.getElementById('f-emp')?.value?.trim()||( role==='admin'?'الإدارة':'موظف الفرع'),
+    emp:document.getElementById('f-emp')?.value?.trim()||currentEmployee||(role==='admin'?'الإدارة':'موظف الفرع'),
     tailor:document.getElementById('f-tailor')?.value?.trim()||'',
     meas:collectMeas(),
     notes:document.getElementById('f-notes')?.value||''
@@ -2776,7 +2887,7 @@ function orderCard(o, showBranch){
       <span>📐 ${MEAS_DEF[o.type]?.label}</span>
       <span>📅 ${o.date}</span>
       ${o.delivery?`<span>🚚 ${o.delivery} ${deliveryCountdown(o.delivery)}</span>`:''}
-      <span>👤 ${o.emp}</span>
+      ${o.emp?`<span style="font-weight:600;color:var(--dgreen)">👤 ${o.emp}</span>`:''}
     </div>
     ${hasPrice?`<div style="display:flex;gap:1rem;flex-wrap:wrap;font-size:0.82rem;padding:0.4rem 0.6rem;background:var(--gold-pale);border-radius:8px;margin-bottom:0.5rem">
       <span>💰 الإجمالي: <strong>${fmtNum(o.totalPrice)} ${CURRENCY}</strong></span>
@@ -3213,6 +3324,7 @@ function updateSyncStatus(){
 }
 
 let _refreshTimer=null;
+let _lastContentHash='';
 function silentRefresh(){
   if(_refreshTimer) clearTimeout(_refreshTimer);
   _refreshTimer = setTimeout(()=>{
@@ -3221,8 +3333,27 @@ function silentRefresh(){
     if(document.getElementById('modal').classList.contains('open')) return;
     const a = document.activeElement;
     if(a && (a.tagName==='INPUT'||a.tagName==='TEXTAREA'||a.tagName==='SELECT')) return;
-    showTab(currentTab);
-  }, 300);
+    // تجنب الوميض — نقارن المحتوى الجديد قبل الاستبدال
+    const c=document.getElementById('app-content');
+    const map={
+      dash:renderDash,'all-orders':renderAllOrders,'edit-reqs':renderEditReqs,
+      'print-q':renderPrintQ,accounts:renderAccounts,'fin-daily':renderFinDaily,'fin-reports':renderFinReports,
+      branches:renderBranches,
+      'new-order':renderNewOrder,'my-orders':renderMyOrders,'ready-orders':renderReadyOrders,
+      'all-branch-orders':renderAllBranchOrders,'pending-orders':renderPendingBranchOrders,
+      'accepted-orders-branch':renderAcceptedBranchOrders,
+      'pin-mgmt':renderPinMgmt,system:renderSystem,'activity-log':renderActivityLog,
+      'incoming-orders':renderIncomingOrders,'accepted-orders':renderAcceptedOrders
+    };
+    const fn=map[currentTab];
+    if(!fn) return;
+    const newHtml=fn();
+    // إذا المحتوى لم يتغير، لا تعيد الرسم
+    if(newHtml===_lastContentHash) return;
+    _lastContentHash=newHtml;
+    c.innerHTML=newHtml;
+    buildNav();
+  }, 500);
 }
 
 async function saveToSupabase(){
@@ -3442,7 +3573,7 @@ function startPresenceHeartbeat(){
   if(_presenceHeartbeatTimer) clearInterval(_presenceHeartbeatTimer);
   if(role==='admin'||role==='accountant'||!branch) return;
   _presenceHeartbeatTimer = setInterval(()=>{
-    presence[branch]={status:'online',ts:Date.now(),time:new Date().toLocaleString('ar-IQ')};
+    presence[branch]={status:'online',ts:Date.now(),time:new Date().toLocaleString('ar-IQ'),emp:currentEmployee};
     localStorage.setItem('khy_presence',JSON.stringify(presence));
     savePresenceOnly();
   }, 60000); // كل دقيقة
